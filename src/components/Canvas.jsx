@@ -1,31 +1,7 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { useZoom } from '../hooks/useZoom.js'
 import { floodFill, hexToRgba } from '../hooks/useFloodFill.js'
-
-// Tamanho padrão inicial (substituído pelo tamanho real do container no primeiro render)
-const DEFAULT_W = 1200
-const DEFAULT_H = 900
-
-// Desenha a imagem do contorno centralizada com letterboxing,
-// mantendo a proporção original da imagem.
-function drawContornoFitted(ctx, img, cW, cH) {
-  ctx.clearRect(0, 0, cW, cH)
-  if (!img) return
-  const imgR = img.naturalWidth / img.naturalHeight
-  const cvR  = cW / cH
-  let dx = 0, dy = 0, dw = cW, dh = cH
-  if (imgR > cvR) {
-    // Imagem mais larga: encaixa na largura, barras cima/baixo
-    dh = cW / imgR
-    dy = (cH - dh) / 2
-  } else {
-    // Imagem mais alta: encaixa na altura, barras esq/dir
-    dw = cH * imgR
-    dx = (cW - dw) / 2
-  }
-  ctx.drawImage(img, dx, dy, dw, dh)
-}
 
 const Canvas = forwardRef(function Canvas({
   ferramenta, cor, tamanho, corFundo, contornoSrc, onAlterado
@@ -36,13 +12,20 @@ const Canvas = forwardRef(function Canvas({
   const pinturaCtx   = useRef(null)
   const contornoImg  = useRef(null)
 
-  // Tamanho lógico atual do canvas (atualizado pelo ResizeObserver na 1ª vez)
-  const cvSize = useRef({ w: DEFAULT_W, h: DEFAULT_H })
-  // Garante que o canvas interno é inicializado apenas 1x (no 1º callback do ResizeObserver)
-  const cvReady = useRef(false)
+  // Tamanho do container (via ResizeObserver) e aspect ratio do template
+  const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
+  const [tplAspect, setTplAspect]         = useState(null)
 
-  const [displayW, setDisplayW] = useState(0)
-  const [displayH, setDisplayH] = useState(0)
+  // Tamanho efetivo do canvas: se há template, adapta ao aspect ratio dele;
+  // caso contrário, preenche o container.
+  const cvSize = useMemo(() => {
+    const { w: cW, h: cH } = containerSize
+    if (!cW || !cH) return { w: 0, h: 0 }
+    if (!tplAspect) return { w: cW, h: cH }
+    const cvR = cW / cH
+    if (tplAspect > cvR) return { w: cW, h: Math.round(cW / tplAspect) }
+    return { w: Math.round(cH * tplAspect), h: cH }
+  }, [containerSize, tplAspect])
 
   const zoom = useZoom({ min: 1, max: 5 })
   const { setNaturalSize } = zoom
@@ -50,12 +33,15 @@ const Canvas = forwardRef(function Canvas({
   // Snapshot do canvas antes do 1º toque para cancelar ponto ao pinçar
   const pinturaSnapshot = useRef(null)
 
-  // --- Estado de desenho em refs ----------------------------------------
+  // Estado de desenho em refs
   const draw = useRef({
     desenhando: false, ultimo: null, controle: null,
-    moveu: false, tapStart: 0, fillTimer: null,
+    moveu: false, tapStart: 0,
     pointers: new Map()
   })
+
+  // Última cvSize aplicada — pra detectar mudança e preservar pintura
+  const prevCvSize = useRef({ w: 0, h: 0 })
 
   // -- Helpers imperativos -----------------------------------------------
   useImperativeHandle(ref, () => ({
@@ -78,7 +64,8 @@ const Canvas = forwardRef(function Canvas({
       img.src = dataUrl
       await img.decode().catch(() => {})
       const ctx = pinturaCtx.current
-      const { w, h } = cvSize.current
+      if (!ctx) return
+      const { w, h } = cvSize
       ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0)
       ctx.clearRect(0, 0, pinturaRef.current.width, pinturaRef.current.height)
       ctx.restore()
@@ -86,10 +73,47 @@ const Canvas = forwardRef(function Canvas({
     }
   }))
 
-  // -- Inicializa o canvas interno com um tamanho específico -------------
-  const initCanvases = useCallback((w, h) => {
+  // -- ResizeObserver: rastreia dimensões do container ------------------
+  useLayoutEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      const rect = el.getBoundingClientRect()
+      if (rect.width < 4 || rect.height < 4) return
+      const w = Math.round(rect.width)
+      const h = Math.round(rect.height)
+      setContainerSize(prev => (prev.w === w && prev.h === h) ? prev : { w, h })
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // -- Carrega template e extrai aspect ratio ---------------------------
+  useEffect(() => {
+    if (!contornoSrc) {
+      contornoImg.current = null
+      setTplAspect(null)
+      return
+    }
+    const img = new Image()
+    img.onload = () => {
+      contornoImg.current = img
+      setTplAspect(img.naturalWidth / img.naturalHeight)
+    }
+    img.src = contornoSrc
+  }, [contornoSrc])
+
+  // -- Reinicializa canvas quando cvSize muda, preservando a pintura ----
+  useEffect(() => {
+    const { w, h } = cvSize
+    if (!w || !h) return
     const dpr = Math.max(1, window.devicePixelRatio || 1)
-    cvSize.current = { w, h }
+
+    // Snapshot da pintura atual (antes de redimensionar)
+    let snap = null
+    if (pinturaRef.current && prevCvSize.current.w > 0) {
+      try { snap = pinturaRef.current.toDataURL('image/png') } catch {}
+    }
 
     // Pintura
     const pv = pinturaRef.current
@@ -100,9 +124,15 @@ const Canvas = forwardRef(function Canvas({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.lineCap = 'round'; ctx.lineJoin = 'round'
       pinturaCtx.current = ctx
+
+      if (snap) {
+        const img = new Image()
+        img.onload = () => ctx.drawImage(img, 0, 0, w, h)
+        img.src = snap
+      }
     }
 
-    // Contorno
+    // Contorno — agora preenche o canvas inteiro (aspect casa com o template)
     const cv = contornoRef.current
     if (cv) {
       cv.width  = Math.floor(w * dpr)
@@ -110,91 +140,22 @@ const Canvas = forwardRef(function Canvas({
       const ctx = cv.getContext('2d')
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, w, h)
-      // Redesenha contorno se já existir
       if (contornoImg.current) {
-        drawContornoFitted(ctx, contornoImg.current, w, h)
+        ctx.drawImage(contornoImg.current, 0, 0, w, h)
       }
     }
-  }, [])
 
-  // -- ResizeObserver: CSS preenche container; canvas interno inicializado 1x
-  useLayoutEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-    const ro = new ResizeObserver(() => {
-      const rect = el.getBoundingClientRect()
-      if (rect.width < 4 || rect.height < 4) return
-      const newW = Math.round(rect.width)
-      const newH = Math.round(rect.height)
+    prevCvSize.current = { w, h }
+    setNaturalSize(w, h)
+  }, [cvSize.w, cvSize.h, setNaturalSize])
 
-      if (!cvReady.current) {
-        // Primeira vez: ajusta o canvas interno ao tamanho real do container
-        cvReady.current = true
-        initCanvases(newW, newH)
-      }
-
-      // CSS sempre preenche o container — zero desperdício de espaço
-      setDisplayW(newW)
-      setDisplayH(newH)
-      setNaturalSize(newW, newH)
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [initCanvases, setNaturalSize])
-
-  // -- Canvas de pintura (fallback antes do ResizeObserver) --------------
-  useEffect(() => {
-    if (cvReady.current) return  // já inicializado pelo ResizeObserver
-    const cv = pinturaRef.current
-    if (!cv) return
-    const dpr = Math.max(1, window.devicePixelRatio || 1)
-    cv.width  = Math.floor(DEFAULT_W * dpr)
-    cv.height = Math.floor(DEFAULT_H * dpr)
-    const ctx = cv.getContext('2d', { willReadFrequently: true })
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round'
-    pinturaCtx.current = ctx
-  }, []) // eslint-disable-line
-
-  // -- Contorno overlay --------------------------------------------------
-  useEffect(() => {
-    const cv = contornoRef.current
-    if (!cv) return
-    const dpr = Math.max(1, window.devicePixelRatio || 1)
-    const { w, h } = cvSize.current
-
-    if (!contornoSrc) {
-      contornoImg.current = null
-      cv.width  = Math.floor(w * dpr)
-      cv.height = Math.floor(h * dpr)
-      const ctx = cv.getContext('2d')
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      ctx.clearRect(0, 0, w, h)
-      return
-    }
-
-    const img = new Image()
-    img.onload = () => {
-      contornoImg.current = img
-      const { w: cW, h: cH } = cvSize.current  // usa tamanho atual (pode ter mudado)
-      cv.width  = Math.floor(cW * dpr)
-      cv.height = Math.floor(cH * dpr)
-      const ctx = cv.getContext('2d')
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      // Desenha centralizado mantendo proporção do template (letterbox/pillarbox)
-      drawContornoFitted(ctx, img, cW, cH)
-    }
-    img.src = contornoSrc
-  }, [contornoSrc])
-
-  // -- Conversão de coordenadas (via getBoundingClientRect — correto mesmo com zoom) --
+  // -- Conversão de coordenadas -----------------------------------------
   const toCanvas = useCallback((clientX, clientY) => {
     const rect = pinturaRef.current.getBoundingClientRect()
-    const { w, h } = cvSize.current
-    const x = ((clientX - rect.left) / rect.width)  * w
-    const y = ((clientY - rect.top)  / rect.height) * h
+    const x = ((clientX - rect.left) / rect.width)  * cvSize.w
+    const y = ((clientY - rect.top)  / rect.height) * cvSize.h
     return { x, y }
-  }, [])
+  }, [cvSize.w, cvSize.h])
 
   // -- Desenho -----------------------------------------------------------
   const aplicarModo = (ctx) => {
@@ -352,8 +313,8 @@ const Canvas = forwardRef(function Canvas({
                    md:shadow-soft md:rounded-2xl
                    md:ring-1 md:ring-black/5 md:dark:ring-white/10"
         style={{
-          width:  displayW || '100%',
-          height: displayH || '100%',
+          width:  cvSize.w || '100%',
+          height: cvSize.h || '100%',
           transform,
           transformOrigin: 'center center',
           transition: draw.current.pointers.size === 0 ? 'transform 120ms ease-out' : 'none'
