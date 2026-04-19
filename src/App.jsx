@@ -10,7 +10,7 @@ import { processarContorno, comporObra, canvasParaBlob } from './lib/imageProces
 import { BUILTIN_TEMPLATES } from './lib/builtinTemplates.js'
 
 const DARK_KEY  = 'kp_dark'
-const BOAS_KEY  = 'kp_boas_vindas_v1'
+const BOAS_KEY  = 'kp_boas_vindas_sessao'
 
 export default function App() {
   // Tema
@@ -22,9 +22,11 @@ export default function App() {
 
   const corFundo = dark ? '#0a0a0a' : '#ffffff'
 
-  // Boas-vindas
-  const [bemVindo, setBemVindo] = useState(() => !localStorage.getItem(BOAS_KEY))
-  const entrar = () => { localStorage.setItem(BOAS_KEY, '1'); setBemVindo(false) }
+  // Boas-vindas — a flag fica em sessionStorage pra aparecer a cada nova
+  // sessão (nova aba/relaunch do PWA), garantindo o passo pelo botão que
+  // aciona o fullscreen no celular.
+  const [bemVindo, setBemVindo] = useState(() => !sessionStorage.getItem(BOAS_KEY))
+  const entrar = () => { sessionStorage.setItem(BOAS_KEY, '1'); setBemVindo(false) }
 
   // Ferramentas
   const [ferramenta, setFerramenta] = useState('pincel')
