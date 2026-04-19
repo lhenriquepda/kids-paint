@@ -43,7 +43,20 @@ export function floodFill(ctx, startX, startY, fillColor, tolerancia = 30, mask 
     const dg = data[di + 1] - alvo[1]
     const db = data[di + 2] - alvo[2]
     const da = data[di + 3] - alvo[3]
-    if (dr * dr + dg * dg + db * db + da * da > tol2) continue
+    if (dr * dr + dg * dg + db * db + da * da > tol2) {
+      // Pixel fora da tolerância: é borda de traço (anti-aliased) ou traço sólido.
+      // Se for anti-aliased (alpha parcial), pintamos com a cor do balde sem propagar
+      // — isso elimina a micro-borda branca entre o preenchimento e o pincel.
+      // Traço sólido (alpha >= 250) fica intocado, servindo de barreira natural.
+      if (data[di + 3] < 250) {
+        visit[pxIdx] = 1
+        data[di]     = fill[0]
+        data[di + 1] = fill[1]
+        data[di + 2] = fill[2]
+        data[di + 3] = fill[3]
+      }
+      continue
+    }
 
     visit[pxIdx] = 1
     data[di]     = fill[0]
