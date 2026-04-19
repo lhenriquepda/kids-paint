@@ -3,7 +3,10 @@ import { FileX2 } from 'lucide-react'
 export default function TemplateSelector({ templates, ativo, onEscolher, corPerfil }) {
   const cor = corPerfil || '#5d6bf0'
   return (
-    <div className="w-full overflow-x-auto no-scrollbar">
+    <div
+      className="w-full overflow-x-auto no-scrollbar"
+      style={{ touchAction: 'pan-x', overscrollBehavior: 'contain' }}
+    >
       <div className="flex items-stretch gap-3 px-3 py-2 min-w-max">
         <ItemTpl
           ativo={ativo === 'blank'}

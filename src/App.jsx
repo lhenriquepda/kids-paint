@@ -226,12 +226,12 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen h-screen flex flex-col md:flex-row">
+    <div className="min-h-screen h-screen flex flex-col md:flex-row overflow-hidden">
       <div className="flex-1 flex flex-col min-h-0">
         {!imersivo && (
-        <header className="shrink-0 border-b border-neutral-200 dark:border-neutral-800 bg-white/70 dark:bg-neutral-900/70 backdrop-blur">
-          <div className="flex items-center gap-2 px-3 py-1">
-            <div className="hidden md:flex items-center gap-2 px-2 py-1">
+        <header className="shrink-0 border-b border-neutral-200 dark:border-neutral-800 bg-white/70 dark:bg-neutral-900/70 backdrop-blur overflow-hidden">
+          <div className="flex items-center gap-1 px-2 py-1">
+            <div className="hidden md:flex items-center gap-2 px-2 py-1 shrink-0">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-400 to-pink-400 flex items-center justify-center text-white font-extrabold">P</div>
               <span className="font-extrabold tracking-tight">Pintar</span>
             </div>
@@ -242,18 +242,45 @@ export default function App() {
                 className="shrink-0 flex items-center gap-2 px-2 py-1 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition"
                 title="Abrir configurações (protegido por senha)"
               >
-                <div className="w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs" style={{ background: perfilAtivo.cor }}>
+                <div className="w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs" style={{ background: perfilAtivo?.cor }}>
                   {perfilAtivo.nome.charAt(0).toUpperCase()}
                 </div>
                 <span className="font-semibold text-sm hidden sm:inline">{perfilAtivo.nome}</span>
               </button>
             )}
 
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 overflow-hidden">
               <TemplateSelector templates={templates} ativo={templateId} onEscolher={trocarTemplate} corPerfil={perfilAtivo?.cor}/>
             </div>
+
+            {/* Botão tela cheia — dentro do header, canto direito */}
+            <button
+              onClick={() => setImersivo(true)}
+              className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center
+                         hover:bg-neutral-100 dark:hover:bg-neutral-800 transition ml-1"
+              title="Tela cheia (esconde HUD)"
+              aria-label="Tela cheia"
+            >
+              <Expand size={17}/>
+            </button>
           </div>
         </header>
+        )}
+
+        {/* Botão para sair da tela cheia — aparece apenas em modo imersivo */}
+        {imersivo && (
+          <button
+            onClick={() => setImersivo(false)}
+            className="fixed top-3 left-3 z-50 w-12 h-12 rounded-full
+                       text-white shadow-xl ring-2 ring-white/30
+                       flex items-center justify-center
+                       hover:scale-110 active:scale-95 transition"
+            style={{ background: perfilAtivo?.cor || '#5d6bf0' }}
+            title="Mostrar HUD"
+            aria-label="Mostrar HUD"
+          >
+            <Shrink size={22}/>
+          </button>
         )}
 
         <main className="flex-1 min-h-0 p-2 md:p-4 relative">
@@ -285,16 +312,6 @@ export default function App() {
       </aside>
       )}
 
-      {/* Botão flutuante de tela cheia — sempre visível */}
-      <button
-        onClick={() => setImersivo(v => !v)}
-        className="fixed bottom-4 right-4 z-40 w-14 h-14 rounded-full text-white shadow-xl ring-2 ring-white/40 dark:ring-black/30 flex items-center justify-center hover:scale-110 active:scale-95 transition"
-        style={{ background: perfilAtivo?.cor || '#5d6bf0' }}
-        title={imersivo ? 'Sair da tela cheia' : 'Tela cheia'}
-        aria-label={imersivo ? 'Sair da tela cheia' : 'Tela cheia'}
-      >
-        {imersivo ? <Shrink size={26}/> : <Expand size={26}/>}
-      </button>
 
       {paletaAberta && <ColorPicker cor={cor} setCor={setCor} onFechar={() => setPaletaAberta(false)}/>}
 

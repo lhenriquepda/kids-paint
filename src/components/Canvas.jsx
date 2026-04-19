@@ -21,6 +21,7 @@ const Canvas = forwardRef(function Canvas({
   const [displayH, setDisplayH] = useState(0)
 
   const zoom = useZoom({ min: 1, max: 5 })
+  const { setNaturalSize } = zoom
 
   // --- Estado de desenho em refs (evita re-render a cada ponto) --------
   const draw = useRef({
@@ -32,6 +33,8 @@ const Canvas = forwardRef(function Canvas({
     fillTimer: null,
     pointers: new Map()
   })
+  // Snapshot do canvas antes do primeiro toque — restaurado se pinça for detectada
+  const pinturaSnapshot = useRef(null)
 
   // -- Helpers imperativos ---------------------------------------------
   useImperativeHandle(ref, () => ({
@@ -61,21 +64,20 @@ const Canvas = forwardRef(function Canvas({
     }
   }))
 
-  // -- Dimensiona o container para manter proporção 4:3 ---------------
+  // -- Canvas preenche o container inteiro (sem barras laterais) ------
   useLayoutEffect(() => {
     const el = containerRef.current
     if (!el) return
     const ro = new ResizeObserver(() => {
       const rect = el.getBoundingClientRect()
-      const razao = CANVAS_W / CANVAS_H
-      let w = rect.width, h = rect.height
-      if (w / h > razao) w = h * razao
-      else h = w / razao
-      setDisplayW(w); setDisplayH(h)
+      if (rect.width < 4 || rect.height < 4) return
+      setDisplayW(rect.width)
+      setDisplayH(rect.height)
+      setNaturalSize(rect.width, rect.height)
     })
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [setNaturalSize])
 
   // -- Prepara canvas de pintura ---------------------------------------
   useEffect(() => {
@@ -206,10 +208,21 @@ const Canvas = forwardRef(function Canvas({
     draw.current.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
 
     if (draw.current.pointers.size >= 2) {
-      // inicia pinch
+      // Segundo dedo detectado: cancela qualquer pintura do primeiro toque.
+      // Restaura o snapshot para remover o ponto que eventualmente foi pintado.
       draw.current.desenhando = false
+      if (pinturaSnapshot.current && pinturaCtx.current) {
+        pinturaCtx.current.putImageData(pinturaSnapshot.current, 0, 0)
+        pinturaSnapshot.current = null
+      }
       zoom.onPointersChange(draw.current.pointers, 'down')
       return
+    }
+
+    // Primeiro toque: salva snapshot antes de pintar (para desfazer se vier pinça)
+    if (e.pointerType === 'touch' && pinturaCtx.current) {
+      const cv = pinturaRef.current
+      pinturaSnapshot.current = pinturaCtx.current.getImageData(0, 0, cv.width, cv.height)
     }
 
     // Toque único => desenho
@@ -222,12 +235,8 @@ const Canvas = forwardRef(function Canvas({
     draw.current.tapPoint = p
 
     if (ferramenta === 'balde') {
-      // Balde: dispara fill imediato no ponto tocado.
-      // Durante o arrasto (pointerMove), cada nova região tocada também é
-      // preenchida — pintura contínua sem precisar levantar o dedo.
       if (baldeEm(p.x, p.y)) onAlterado?.()
     } else {
-      // Desenha ponto inicial
       const ctx = pinturaCtx.current
       desenharPonto(ctx, p.x, p.y, e.pressure || 0.5)
       onAlterado?.()
@@ -292,12 +301,14 @@ const Canvas = forwardRef(function Canvas({
     draw.current.controle = null
     draw.current.tapPoint = null
     draw.current.moveu = false
+    // Pintura confirmada: descarta snapshot (não há mais o que desfazer)
+    pinturaSnapshot.current = null
   }
 
   const onPointerCancel = onPointerUp
 
   // -- Container ref para zoom ----------------------------------------
-  useEffect(() => { zoom.setContainer(containerRef.current) }, [zoom])
+  useEffect(() => { zoom.setContainer(containerRef.current) }, [zoom.setContainer])
 
   const transform = `translate(${zoom.tx}px, ${zoom.ty}px) scale(${zoom.scale})`
 
