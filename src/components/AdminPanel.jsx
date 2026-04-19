@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { X, Moon, Sun, Upload, Eye, EyeOff, Trash2, ChevronLeft, ChevronRight, Download, Lock, LogOut, UserCog, Check } from 'lucide-react'
+import { X, Moon, Sun, Upload, Eye, EyeOff, Trash2, ChevronLeft, ChevronRight, Download, Lock, LogOut, UserCog, Check, Link as LinkIcon, ImagePlus } from 'lucide-react'
 import {
   listarProjetos, excluirProjeto,
   listarTemplates, uploadTemplate, setTemplateVisivel, excluirTemplate,
@@ -276,8 +276,11 @@ function Conta() {
 // ---------------------------------------------------------------------------
 function Templates({ perfilAtivo, onTemplatesChange }) {
   const [lista, setLista] = useState([])
-  const [carregando, setCarregando] = useState(false)
   const [ocultos, setOcultos] = useState(() => perfilAtivo?.builtins_ocultos || [])
+  const [progresso, setProgresso] = useState(null) // { feito, total, falhas }
+  const [dragAtivo, setDragAtivo] = useState(false)
+  const [linkUrl, setLinkUrl] = useState('')
+  const [enviandoLink, setEnviandoLink] = useState(false)
 
   const recarregar = async () => {
     if (!hasSupabase || !perfilAtivo) return
@@ -292,7 +295,6 @@ function Templates({ perfilAtivo, onTemplatesChange }) {
     try {
       const novo = await setBuiltinVisivel(perfilAtivo.id, tplId, visivel)
       setOcultos(novo)
-      // Atualiza a referência local do perfil pra refletir em outras telas
       if (perfilAtivo) perfilAtivo.builtins_ocultos = novo
       onTemplatesChange?.()
     } catch (err) { alert('Erro: ' + err.message) }
@@ -300,17 +302,75 @@ function Templates({ perfilAtivo, onTemplatesChange }) {
 
   if (!perfilAtivo) return <p className="text-neutral-500">Ative um perfil para gerenciar templates.</p>
 
-  const onUpload = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setCarregando(true)
+  const processarArquivos = async (fileList) => {
+    const arr = Array.from(fileList).filter(f => f.type.startsWith('image/'))
+    if (arr.length === 0) { alert('Selecione imagens (PNG, JPG, SVG, etc.)'); return }
+    let falhas = 0
+    setProgresso({ feito: 0, total: arr.length, falhas: 0 })
+    for (let i = 0; i < arr.length; i++) {
+      try {
+        await uploadTemplate({
+          file: arr[i],
+          nome: arr[i].name.replace(/\.[^.]+$/, ''),
+          perfilId: perfilAtivo.id
+        })
+      } catch (err) {
+        console.error(err)
+        falhas++
+      }
+      setProgresso({ feito: i + 1, total: arr.length, falhas })
+    }
+    await recarregar()
+    onTemplatesChange?.()
+    setTimeout(() => setProgresso(null), 1800)
+  }
+
+  const onUpload = (e) => {
+    if (!e.target.files?.length) return
+    processarArquivos(e.target.files)
+    e.target.value = ''
+  }
+
+  const onDrop = (e) => {
+    e.preventDefault()
+    setDragAtivo(false)
+    if (!e.dataTransfer.files?.length) return
+    processarArquivos(e.dataTransfer.files)
+  }
+  const onDragOver = (e) => { e.preventDefault(); setDragAtivo(true) }
+  const onDragLeave = (e) => { e.preventDefault(); setDragAtivo(false) }
+
+  const enviarLink = async () => {
+    const u = linkUrl.trim()
+    if (!u) return
+    setEnviandoLink(true)
     try {
-      await uploadTemplate({ file, nome: file.name.replace(/\.[^.]+$/, ''), perfilId: perfilAtivo.id })
+      // Tenta fetch direto; se CORS bloquear, tenta via proxy público
+      let blob = null
+      try {
+        const resp = await fetch(u, { mode: 'cors' })
+        if (!resp.ok) throw new Error('HTTP ' + resp.status)
+        blob = await resp.blob()
+      } catch {
+        const resp2 = await fetch('https://corsproxy.io/?' + encodeURIComponent(u))
+        if (!resp2.ok) throw new Error('HTTP ' + resp2.status)
+        blob = await resp2.blob()
+      }
+      if (!blob || !blob.type.startsWith('image/')) throw new Error('A URL não retornou uma imagem')
+      const ext = (blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace('svg+xml', 'svg')
+      const urlClean = u.split('?')[0]
+      const baseName = decodeURIComponent(urlClean.split('/').pop() || 'imagem')
+        .replace(/\.[^.]+$/, '')
+        .slice(0, 60) || 'imagem'
+      const file = new File([blob], `${baseName}.${ext}`, { type: blob.type })
+      await uploadTemplate({ file, nome: baseName, perfilId: perfilAtivo.id })
       await recarregar()
       onTemplatesChange?.()
-    } catch (err) { alert('Erro ao enviar: ' + err.message) }
-    setCarregando(false)
-    e.target.value = ''
+      setLinkUrl('')
+    } catch (err) {
+      alert('Não foi possível baixar a imagem.\n' + err.message + '\n\nSe a origem bloqueia CORS, baixe no dispositivo e envie como arquivo.')
+    }
+    setEnviandoLink(false)
   }
 
   const alternar = async (t) => {
@@ -328,16 +388,85 @@ function Templates({ perfilAtivo, onTemplatesChange }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-neutral-500">
-          Perfil: <b className="text-neutral-900 dark:text-neutral-100">{perfilAtivo.nome}</b>
-        </p>
-        <label className="flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 text-white font-semibold text-sm cursor-pointer transition">
-          <Upload size={16}/>
-          {carregando ? 'Enviando...' : 'Enviar template'}
-          <input type="file" accept="image/png,image/jpeg" className="hidden" onChange={onUpload}/>
-        </label>
+      <p className="text-sm text-neutral-500 mb-3">
+        Perfil: <b className="text-neutral-900 dark:text-neutral-100">{perfilAtivo.nome}</b>
+      </p>
+
+      {/* Zona de upload: clique OU arraste vários arquivos */}
+      <label
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        className={[
+          'block w-full rounded-2xl border-2 border-dashed p-5 text-center cursor-pointer transition mb-3',
+          dragAtivo
+            ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20 scale-[1.01]'
+            : 'border-neutral-300 dark:border-neutral-700 hover:border-brand-400 bg-neutral-50 dark:bg-neutral-800/40'
+        ].join(' ')}
+      >
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={onUpload}
+          disabled={!!progresso}
+        />
+        <div className="flex flex-col items-center gap-2 pointer-events-none">
+          <div className="w-11 h-11 rounded-full bg-white dark:bg-neutral-900 flex items-center justify-center shadow-soft">
+            <ImagePlus size={22} className="text-brand-500"/>
+          </div>
+          <p className="font-bold text-sm">
+            {dragAtivo ? 'Solte para enviar' : 'Arraste imagens aqui ou toque para escolher'}
+          </p>
+          <p className="text-xs text-neutral-500">
+            Pode enviar várias de uma vez (PNG, JPG, SVG…)
+          </p>
+        </div>
+      </label>
+
+      {/* Enviar por link */}
+      <div className="flex gap-2 mb-3">
+        <div className="flex-1 flex items-center gap-2 bg-neutral-100 dark:bg-neutral-800 rounded-xl px-3">
+          <LinkIcon size={16} className="text-neutral-400 shrink-0"/>
+          <input
+            type="url"
+            value={linkUrl}
+            onChange={e => setLinkUrl(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') enviarLink() }}
+            placeholder="Cole um link de imagem (https://…)"
+            className="flex-1 bg-transparent py-2 outline-none text-sm"
+            disabled={enviandoLink}
+          />
+        </div>
+        <button
+          onClick={enviarLink}
+          disabled={!linkUrl.trim() || enviandoLink}
+          className="px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-semibold text-sm whitespace-nowrap"
+        >
+          {enviandoLink ? 'Baixando…' : 'Adicionar link'}
+        </button>
       </div>
+
+      {/* Barra de progresso */}
+      {progresso && (
+        <div className="mb-4 p-3 rounded-xl bg-brand-50 dark:bg-brand-900/20 ring-1 ring-brand-200 dark:ring-brand-800">
+          <div className="flex items-center justify-between text-xs font-semibold mb-1.5">
+            <span>
+              {progresso.feito < progresso.total
+                ? `Enviando ${progresso.feito + 1} de ${progresso.total}…`
+                : `Concluído: ${progresso.feito - progresso.falhas} enviado(s)${progresso.falhas ? `, ${progresso.falhas} falharam` : ''}`}
+            </span>
+            <span className="text-brand-600 dark:text-brand-400">{Math.round((progresso.feito / progresso.total) * 100)}%</span>
+          </div>
+          <div className="h-2 bg-white dark:bg-neutral-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-brand-500 transition-all"
+              style={{ width: `${(progresso.feito / progresso.total) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Embutidos */}
       <h4 className="text-xs uppercase tracking-wider font-bold text-neutral-500 mb-2">Embutidos</h4>
