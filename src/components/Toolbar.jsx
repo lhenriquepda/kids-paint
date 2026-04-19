@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Brush, Eraser, PaintBucket, Palette, Star, Download, Trash2, Moon, Sun, Settings, MoreHorizontal } from 'lucide-react'
+import { Brush, Eraser, PaintBucket, Palette, Star, Download, Trash2, Moon, Sun, Settings, MoreHorizontal, Expand } from 'lucide-react'
 
 const TAMANHOS = [
   { key: 'p', label: 'P', px: 6 },
@@ -7,17 +7,16 @@ const TAMANHOS = [
   { key: 'g', label: 'G', px: 35 }
 ]
 const FERRAMENTAS = [
-  { key: 'pincel',   Icon: Brush,        label: 'Pincel'   },
-  { key: 'balde',    Icon: PaintBucket,  label: 'Balde'    },
-  { key: 'borracha', Icon: Eraser,       label: 'Borracha' }
+  { key: 'pincel',   Icon: Brush,       label: 'Pincel'   },
+  { key: 'balde',    Icon: PaintBucket, label: 'Balde'    },
+  { key: 'borracha', Icon: Eraser,      label: 'Borracha' }
 ]
 
-// ---------- Popup flutuante (abre acima do botão) ----------
-function Popup({ open, onClose, children }) {
+// ── Popup genérico: abre acima, âncora à esquerda ou direita ──────────
+function Popup({ open, onClose, anchorRight = false, children }) {
   const ref = useRef(null)
   useEffect(() => {
     if (!open) return
-    // Pequeno delay para a abertura não ser capturada como fechamento
     const id = setTimeout(() => {
       const handler = (e) => {
         if (ref.current && !ref.current.contains(e.target)) onClose()
@@ -32,10 +31,13 @@ function Popup({ open, onClose, children }) {
   return (
     <div
       ref={ref}
-      className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50
-                 bg-white dark:bg-neutral-900 rounded-2xl
-                 shadow-[0_8px_32px_rgba(0,0,0,0.22)]
-                 ring-1 ring-black/10 dark:ring-white/10 p-2"
+      className={[
+        'absolute bottom-full z-50 mb-2',
+        'bg-white dark:bg-neutral-900 rounded-2xl',
+        'shadow-[0_8px_32px_rgba(0,0,0,0.22)]',
+        'ring-1 ring-black/10 dark:ring-white/10 p-2',
+        anchorRight ? 'right-0' : 'left-0'
+      ].join(' ')}
     >
       {children}
     </div>
@@ -51,10 +53,11 @@ export default function Toolbar({
   onLimpar,
   dark,       onToggleTema,
   onAbrirAdmin,
+  onImersivo,
   corPerfil
 }) {
   const accent = corPerfil || '#5d6bf0'
-  const [popup, setPopup] = useState(null) // null | 'ferr' | 'mais'
+  const [popup, setPopup] = useState(null)
   const toggle = (name) => setPopup(p => p === name ? null : name)
 
   const ferrAtual = FERRAMENTAS.find(f => f.key === ferramenta) || FERRAMENTAS[0]
@@ -63,90 +66,87 @@ export default function Toolbar({
   return (
     <div className="w-full">
 
-      {/* ══════════════════════════════════════════════════════
-          MOBILE  —  barra horizontal fixada na base
-         ══════════════════════════════════════════════════════ */}
+      {/* ══════════════════════════════════════════════════════════
+          MOBILE — barra horizontal na base, 5 botões equilibrados
+         ══════════════════════════════════════════════════════════ */}
       <div className="md:hidden bg-white/95 dark:bg-neutral-900/95 backdrop-blur
                       border-t border-neutral-200 dark:border-neutral-800
-                      px-4 py-2">
-        <div className="flex items-center justify-between gap-2">
+                      px-3 py-2">
+        <div className="flex items-center justify-between">
 
-          {/* ── FERRAMENTA + TAMANHO (popup acima) ── */}
+          {/* ─── 1. FERRAMENTA + TAMANHO ─────────────────── */}
           <div className="relative">
-            <button
+            <BarBtn
+              active={popup === 'ferr'}
+              accent={accent}
               onClick={() => toggle('ferr')}
-              className="w-13 h-13 w-12 h-12 rounded-2xl flex items-center justify-center transition"
-              style={{ background: popup === 'ferr' ? accent : '#f0f0f0' }}
-              aria-label={ferrAtual.label}
-              title={ferrAtual.label}
+              label={ferrAtual.label}
             >
-              <FerrIcon size={24} color={popup === 'ferr' ? '#fff' : undefined} />
-            </button>
+              <FerrIcon size={22} color={popup === 'ferr' ? '#fff' : undefined} />
+            </BarBtn>
 
-            <Popup open={popup === 'ferr'} onClose={() => setPopup(null)}>
-              <div className="flex gap-2 items-center">
-                {/* Ferramentas */}
+            {/* Popup VERTICAL alinhado à esquerda */}
+            <Popup open={popup === 'ferr'} onClose={() => setPopup(null)} anchorRight={false}>
+              <div className="flex flex-col gap-0.5 min-w-[170px]">
                 {FERRAMENTAS.map(({ key, Icon, label }) => (
                   <button
                     key={key}
                     onClick={() => { setFerramenta(key); setPopup(null) }}
-                    className="w-12 h-12 rounded-xl flex items-center justify-center transition"
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition text-left"
                     style={ferramenta === key
                       ? { background: accent, color: '#fff' }
-                      : { background: '#f0f0f0' }}
-                    title={label}
+                      : { background: 'transparent' }}
                   >
-                    <Icon size={22} />
+                    <Icon size={20} />
+                    <span className="text-sm font-semibold">{label}</span>
                   </button>
                 ))}
 
-                {/* Divisor */}
-                <div className="w-px h-8 bg-neutral-200 dark:bg-neutral-700 mx-1" />
+                <div className="h-px bg-neutral-200 dark:bg-neutral-700 mx-1 my-1" />
 
-                {/* Tamanhos */}
-                {TAMANHOS.map(t => (
-                  <button
-                    key={t.key}
-                    onClick={() => { setTamanho(t.px); setPopup(null) }}
-                    className="w-12 h-12 rounded-xl flex items-center justify-center transition"
-                    style={tamanho === t.px
-                      ? { background: accent }
-                      : { background: '#f0f0f0' }}
-                    aria-label={`Tamanho ${t.label}`}
-                  >
-                    <span
-                      className="rounded-full block"
-                      style={{
-                        width:  Math.min(22, 4 + t.px / 2),
-                        height: Math.min(22, 4 + t.px / 2),
-                        background: tamanho === t.px ? '#fff' : '#555'
-                      }}
-                    />
-                  </button>
-                ))}
+                {/* Tamanhos em linha */}
+                <div className="flex gap-1 px-1 pb-1">
+                  {TAMANHOS.map(t => (
+                    <button
+                      key={t.key}
+                      onClick={() => { setTamanho(t.px); setPopup(null) }}
+                      className="flex-1 h-10 rounded-xl flex items-center justify-center transition"
+                      style={tamanho === t.px
+                        ? { background: accent }
+                        : { background: '#f0f0f0' }}
+                      aria-label={`Tamanho ${t.label}`}
+                    >
+                      <span className="rounded-full block" style={{
+                        width:  Math.min(20, 4 + t.px / 2),
+                        height: Math.min(20, 4 + t.px / 2),
+                        background: tamanho === t.px ? '#fff' : '#666'
+                      }} />
+                    </button>
+                  ))}
+                </div>
               </div>
             </Popup>
           </div>
 
-          {/* ── COR ── */}
+          {/* ─── 2. COR ──────────────────────────────────── */}
           <button
             onClick={onAbrirPaleta}
             className="w-12 h-12 rounded-2xl flex items-center justify-center
                        ring-2 ring-black/10 dark:ring-white/15
-                       hover:scale-105 transition shrink-0"
+                       hover:scale-105 transition"
             style={{ background: cor }}
             aria-label="Escolher cor"
           >
             <Palette size={16} className="text-white mix-blend-difference" />
           </button>
 
-          {/* ── SALVAR ⭐ ── */}
+          {/* ─── 3. SALVAR ⭐ ─────────────────────────────── */}
           <button
             onClick={onSalvar}
             disabled={!podeSalvar || salvando}
             className="h-12 px-3 rounded-2xl flex items-center gap-1.5
                        font-bold text-xs text-white
-                       disabled:opacity-40 transition shrink-0"
+                       disabled:opacity-40 transition"
             style={{ background: accent }}
             title={salvando ? 'Salvando...' : 'Salvar'}
           >
@@ -154,19 +154,20 @@ export default function Toolbar({
             <span>{salvando ? '...' : 'Salvar'}</span>
           </button>
 
-          {/* ── MAIS (...) ── */}
+          {/* ─── 4. MAIS ··· ─────────────────────────────── */}
           <div className="relative">
-            <button
+            <BarBtn
+              active={popup === 'mais'}
+              accent={accent}
               onClick={() => toggle('mais')}
-              className="w-12 h-12 rounded-2xl flex items-center justify-center transition"
-              style={{ background: popup === 'mais' ? accent : '#f0f0f0' }}
-              aria-label="Mais opções"
+              label="Mais"
             >
               <MoreHorizontal size={22} color={popup === 'mais' ? '#fff' : undefined} />
-            </button>
+            </BarBtn>
 
-            <Popup open={popup === 'mais'} onClose={() => setPopup(null)}>
-              <div className="flex gap-2">
+            {/* Popup 2×2 alinhado à direita */}
+            <Popup open={popup === 'mais'} onClose={() => setPopup(null)} anchorRight={true}>
+              <div className="grid grid-cols-2 gap-1.5">
                 <MiniAcao icon={<Download size={20}/>}  label="Baixar"
                   onClick={() => { onExportar(); setPopup(null) }}/>
                 <MiniAcao icon={<Trash2 size={20}/>}    label="Limpar"
@@ -181,12 +182,22 @@ export default function Toolbar({
             </Popup>
           </div>
 
+          {/* ─── 5. TELA CHEIA ───────────────────────────── */}
+          <BarBtn
+            active={false}
+            accent={accent}
+            onClick={onImersivo}
+            label="Tela cheia"
+          >
+            <Expand size={20} />
+          </BarBtn>
+
         </div>
       </div>
 
-      {/* ══════════════════════════════════════════════════════
-          DESKTOP  —  barra vertical na lateral
-         ══════════════════════════════════════════════════════ */}
+      {/* ══════════════════════════════════════════════════════════
+          DESKTOP — barra vertical na lateral
+         ══════════════════════════════════════════════════════════ */}
       <div className="hidden md:block
                       bg-white/90 dark:bg-neutral-900/90 backdrop-blur
                       border-l border-neutral-200 dark:border-neutral-800
@@ -270,6 +281,7 @@ export default function Toolbar({
             <AcaoBtn onClick={onToggleTema}
               icon={dark ? <Sun size={20}/> : <Moon size={20}/>}
               label={dark ? 'Claro' : 'Escuro'}/>
+            <AcaoBtn onClick={onImersivo} icon={<Expand size={18}/>} label="Tela cheia"/>
             <AcaoBtn onClick={onAbrirAdmin} icon={<Settings size={18}/>} label=""/>
           </div>
 
@@ -279,13 +291,33 @@ export default function Toolbar({
   )
 }
 
+// ── Botão da barra mobile ──────────────────────────────────────────────
+function BarBtn({ active, accent, onClick, label, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-12 h-12 rounded-2xl flex items-center justify-center transition
+                 active:scale-95"
+      style={active
+        ? { background: accent }
+        : { background: 'rgb(243,244,246)' /* gray-100 */ }}
+      aria-label={label}
+      title={label}
+    >
+      {children}
+    </button>
+  )
+}
+
+// ── Item do popup "Mais" (grade 2×2) ──────────────────────────────────
 function MiniAcao({ icon, label, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="w-14 h-14 rounded-2xl bg-neutral-100 dark:bg-neutral-800
+      className="w-[76px] h-[76px] rounded-2xl
+                 bg-neutral-100 dark:bg-neutral-800
                  hover:bg-neutral-200 dark:hover:bg-neutral-700
-                 flex flex-col items-center justify-center gap-1 transition"
+                 flex flex-col items-center justify-center gap-1.5 transition"
     >
       {icon}
       <span className="text-xs font-semibold leading-none">{label}</span>
@@ -293,6 +325,7 @@ function MiniAcao({ icon, label, onClick }) {
   )
 }
 
+// ── Botão de ação da barra desktop ────────────────────────────────────
 function AcaoBtn({ onClick, disabled, icon, label, primary, cor }) {
   return (
     <button

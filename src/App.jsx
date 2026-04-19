@@ -228,8 +228,12 @@ export default function App() {
   return (
     <div className="min-h-screen h-screen flex flex-col md:flex-row overflow-hidden">
       <div className="flex-1 flex flex-col min-h-0">
-        {!imersivo && (
-        <header className="shrink-0 border-b border-neutral-200 dark:border-neutral-800 bg-white/70 dark:bg-neutral-900/70 backdrop-blur overflow-hidden">
+        {/* Header — usa className hidden para manter no DOM e evitar reflow */}
+        <header className={[
+          'shrink-0 border-b border-neutral-200 dark:border-neutral-800',
+          'bg-white/70 dark:bg-neutral-900/70 backdrop-blur overflow-hidden',
+          imersivo ? 'hidden' : ''
+        ].join(' ')}>
           <div className="flex items-center gap-1 px-2 py-1">
             <div className="hidden md:flex items-center gap-2 px-2 py-1 shrink-0">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-400 to-pink-400 flex items-center justify-center text-white font-extrabold">P</div>
@@ -252,22 +256,10 @@ export default function App() {
             <div className="flex-1 min-w-0 overflow-hidden">
               <TemplateSelector templates={templates} ativo={templateId} onEscolher={trocarTemplate} corPerfil={perfilAtivo?.cor}/>
             </div>
-
-            {/* Botão tela cheia — dentro do header, canto direito */}
-            <button
-              onClick={() => setImersivo(true)}
-              className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center
-                         hover:bg-neutral-100 dark:hover:bg-neutral-800 transition ml-1"
-              title="Tela cheia (esconde HUD)"
-              aria-label="Tela cheia"
-            >
-              <Expand size={17}/>
-            </button>
           </div>
         </header>
-        )}
 
-        {/* Botão para sair da tela cheia — aparece apenas em modo imersivo */}
+        {/* Botão para sair do modo imersivo */}
         {imersivo && (
           <button
             onClick={() => setImersivo(false)}
@@ -283,7 +275,7 @@ export default function App() {
           </button>
         )}
 
-        <main className="flex-1 min-h-0 p-2 md:p-4 relative">
+        <main className="flex-1 min-h-0 md:p-4">
           <Canvas
             ref={canvasRef}
             ferramenta={ferramenta}
@@ -296,8 +288,8 @@ export default function App() {
         </main>
       </div>
 
-      {!imersivo && (
-      <aside className="shrink-0 md:w-[84px] md:p-3 md:pl-0">
+      {/* Aside — usa className hidden para manter no DOM e evitar reflow no desktop */}
+      <aside className={`shrink-0 md:w-[84px] md:p-3 md:pl-0 ${imersivo ? 'hidden' : ''}`}>
         <Toolbar
           ferramenta={ferramenta} setFerramenta={setFerramenta}
           tamanho={tamanho} setTamanho={setTamanho}
@@ -307,10 +299,10 @@ export default function App() {
           onLimpar={onLimpar}
           dark={dark} onToggleTema={() => setDark(d => !d)}
           onAbrirAdmin={() => setAdminAberto(true)}
+          onImersivo={() => setImersivo(true)}
           corPerfil={perfilAtivo?.cor}
         />
       </aside>
-      )}
 
 
       {paletaAberta && <ColorPicker cor={cor} setCor={setCor} onFechar={() => setPaletaAberta(false)}/>}

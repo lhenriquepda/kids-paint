@@ -64,16 +64,20 @@ const Canvas = forwardRef(function Canvas({
     }
   }))
 
-  // -- Canvas preenche o container inteiro (sem barras laterais) ------
+  // -- Mantém proporção 4:3, maximizando a área no container -----------
   useLayoutEffect(() => {
     const el = containerRef.current
     if (!el) return
     const ro = new ResizeObserver(() => {
       const rect = el.getBoundingClientRect()
       if (rect.width < 4 || rect.height < 4) return
-      setDisplayW(rect.width)
-      setDisplayH(rect.height)
-      setNaturalSize(rect.width, rect.height)
+      const razao = CANVAS_W / CANVAS_H
+      let w = rect.width, h = rect.height
+      if (w / h > razao) w = h * razao
+      else h = w / razao
+      setDisplayW(w)
+      setDisplayH(h)
+      setNaturalSize(w, h)
     })
     ro.observe(el)
     return () => ro.disconnect()
@@ -316,9 +320,11 @@ const Canvas = forwardRef(function Canvas({
     <div
       ref={containerRef}
       className="relative w-full h-full flex items-center justify-center overflow-hidden touch-none select-none"
+      style={{ background: corFundo }}
     >
       <div
-        className="relative shadow-soft rounded-2xl overflow-hidden bg-white dark:bg-neutral-900 ring-1 ring-black/5 dark:ring-white/10"
+        className="relative overflow-hidden bg-white dark:bg-neutral-900
+                   md:shadow-soft md:rounded-2xl md:ring-1 md:ring-black/5 md:dark:ring-white/10"
         style={{
           width:  displayW || '100%',
           height: displayH || '100%',
