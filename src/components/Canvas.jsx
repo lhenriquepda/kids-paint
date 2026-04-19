@@ -3,19 +3,43 @@ import { RotateCcw } from 'lucide-react'
 import { useZoom } from '../hooks/useZoom.js'
 import { floodFill, hexToRgba } from '../hooks/useFloodFill.js'
 
-const CANVAS_W = 1200
-const CANVAS_H = 900
+// Tamanho padrão inicial (substituído pelo tamanho real do container no primeiro render)
+const DEFAULT_W = 1200
+const DEFAULT_H = 900
+
+// Desenha a imagem do contorno centralizada com letterboxing,
+// mantendo a proporção original da imagem.
+function drawContornoFitted(ctx, img, cW, cH) {
+  ctx.clearRect(0, 0, cW, cH)
+  if (!img) return
+  const imgR = img.naturalWidth / img.naturalHeight
+  const cvR  = cW / cH
+  let dx = 0, dy = 0, dw = cW, dh = cH
+  if (imgR > cvR) {
+    // Imagem mais larga: encaixa na largura, barras cima/baixo
+    dh = cW / imgR
+    dy = (cH - dh) / 2
+  } else {
+    // Imagem mais alta: encaixa na altura, barras esq/dir
+    dw = cH * imgR
+    dx = (cW - dw) / 2
+  }
+  ctx.drawImage(img, dx, dy, dw, dh)
+}
 
 const Canvas = forwardRef(function Canvas({
   ferramenta, cor, tamanho, corFundo, contornoSrc, onAlterado
 }, ref) {
-  // corFundo só afeta o container (tema) — a pintura fica transparente e é
-  // composta sobre o fundo apenas na exportação.
   const containerRef = useRef(null)
   const pinturaRef   = useRef(null)
   const contornoRef  = useRef(null)
   const pinturaCtx   = useRef(null)
   const contornoImg  = useRef(null)
+
+  // Tamanho lógico atual do canvas (atualizado pelo ResizeObserver na 1ª vez)
+  const cvSize = useRef({ w: DEFAULT_W, h: DEFAULT_H })
+  // Garante que o canvas interno é inicializado apenas 1x (no 1º callback do ResizeObserver)
+  const cvReady = useRef(false)
 
   const [displayW, setDisplayW] = useState(0)
   const [displayH, setDisplayH] = useState(0)
@@ -23,25 +47,20 @@ const Canvas = forwardRef(function Canvas({
   const zoom = useZoom({ min: 1, max: 5 })
   const { setNaturalSize } = zoom
 
-  // --- Estado de desenho em refs (evita re-render a cada ponto) --------
-  const draw = useRef({
-    desenhando: false,
-    ultimo: null,
-    controle: null,
-    moveu: false,
-    tapStart: 0,
-    fillTimer: null,
-    pointers: new Map()
-  })
-  // Snapshot do canvas antes do primeiro toque — restaurado se pinça for detectada
+  // Snapshot do canvas antes do 1º toque para cancelar ponto ao pinçar
   const pinturaSnapshot = useRef(null)
 
-  // -- Helpers imperativos ---------------------------------------------
+  // --- Estado de desenho em refs ----------------------------------------
+  const draw = useRef({
+    desenhando: false, ultimo: null, controle: null,
+    moveu: false, tapStart: 0, fillTimer: null,
+    pointers: new Map()
+  })
+
+  // -- Helpers imperativos -----------------------------------------------
   useImperativeHandle(ref, () => ({
-    exportar: () => ({
-      pintura: pinturaRef.current,
-      contorno: contornoImg.current
-    }),
+    exportar: () => ({ pintura: pinturaRef.current, contorno: contornoImg.current }),
+
     limpar: () => {
       const ctx = pinturaCtx.current
       if (!ctx) return
@@ -50,95 +69,134 @@ const Canvas = forwardRef(function Canvas({
       ctx.restore()
       onAlterado?.()
     },
+
     getPinturaDataUrl: () => pinturaRef.current?.toDataURL('image/png'),
+
     setPinturaDataUrl: async (dataUrl) => {
       if (!dataUrl) return
       const img = new Image()
       img.src = dataUrl
       await img.decode().catch(() => {})
       const ctx = pinturaCtx.current
+      const { w, h } = cvSize.current
       ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0)
       ctx.clearRect(0, 0, pinturaRef.current.width, pinturaRef.current.height)
       ctx.restore()
-      ctx.drawImage(img, 0, 0, CANVAS_W, CANVAS_H)
+      ctx.drawImage(img, 0, 0, w, h)
     }
   }))
 
-  // -- Mantém proporção 4:3, maximizando a área no container -----------
+  // -- Inicializa o canvas interno com um tamanho específico -------------
+  const initCanvases = useCallback((w, h) => {
+    const dpr = Math.max(1, window.devicePixelRatio || 1)
+    cvSize.current = { w, h }
+
+    // Pintura
+    const pv = pinturaRef.current
+    if (pv) {
+      pv.width  = Math.floor(w * dpr)
+      pv.height = Math.floor(h * dpr)
+      const ctx = pv.getContext('2d', { willReadFrequently: true })
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+      pinturaCtx.current = ctx
+    }
+
+    // Contorno
+    const cv = contornoRef.current
+    if (cv) {
+      cv.width  = Math.floor(w * dpr)
+      cv.height = Math.floor(h * dpr)
+      const ctx = cv.getContext('2d')
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, w, h)
+      // Redesenha contorno se já existir
+      if (contornoImg.current) {
+        drawContornoFitted(ctx, contornoImg.current, w, h)
+      }
+    }
+  }, [])
+
+  // -- ResizeObserver: CSS preenche container; canvas interno inicializado 1x
   useLayoutEffect(() => {
     const el = containerRef.current
     if (!el) return
     const ro = new ResizeObserver(() => {
       const rect = el.getBoundingClientRect()
       if (rect.width < 4 || rect.height < 4) return
-      const razao = CANVAS_W / CANVAS_H
-      let w = rect.width, h = rect.height
-      if (w / h > razao) w = h * razao
-      else h = w / razao
-      setDisplayW(w)
-      setDisplayH(h)
-      setNaturalSize(w, h)
+      const newW = Math.round(rect.width)
+      const newH = Math.round(rect.height)
+
+      if (!cvReady.current) {
+        // Primeira vez: ajusta o canvas interno ao tamanho real do container
+        cvReady.current = true
+        initCanvases(newW, newH)
+      }
+
+      // CSS sempre preenche o container — zero desperdício de espaço
+      setDisplayW(newW)
+      setDisplayH(newH)
+      setNaturalSize(newW, newH)
     })
     ro.observe(el)
     return () => ro.disconnect()
-  }, [setNaturalSize])
+  }, [initCanvases, setNaturalSize])
 
-  // -- Prepara canvas de pintura ---------------------------------------
+  // -- Canvas de pintura (fallback antes do ResizeObserver) --------------
   useEffect(() => {
+    if (cvReady.current) return  // já inicializado pelo ResizeObserver
     const cv = pinturaRef.current
     if (!cv) return
     const dpr = Math.max(1, window.devicePixelRatio || 1)
-    cv.width  = Math.floor(CANVAS_W * dpr)
-    cv.height = Math.floor(CANVAS_H * dpr)
+    cv.width  = Math.floor(DEFAULT_W * dpr)
+    cv.height = Math.floor(DEFAULT_H * dpr)
     const ctx = cv.getContext('2d', { willReadFrequently: true })
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'
     pinturaCtx.current = ctx
   }, []) // eslint-disable-line
 
-  // Quando muda o tema, repinta o fundo onde for "tinta de fundo" (limitado).
-  // Aqui só atualizamos corFundo em borracha.
-  // O fundo do canvas em si permanece; o tema muda apenas o contorno.
-
-  // -- Contorno overlay -------------------------------------------------
+  // -- Contorno overlay --------------------------------------------------
   useEffect(() => {
+    const cv = contornoRef.current
+    if (!cv) return
+    const dpr = Math.max(1, window.devicePixelRatio || 1)
+    const { w, h } = cvSize.current
+
     if (!contornoSrc) {
       contornoImg.current = null
-      const cv = contornoRef.current
-      if (cv) {
-        const ctx = cv.getContext('2d')
-        const dpr = Math.max(1, window.devicePixelRatio || 1)
-        cv.width = Math.floor(CANVAS_W * dpr); cv.height = Math.floor(CANVAS_H * dpr)
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-        ctx.clearRect(0, 0, CANVAS_W, CANVAS_H)
-      }
+      cv.width  = Math.floor(w * dpr)
+      cv.height = Math.floor(h * dpr)
+      const ctx = cv.getContext('2d')
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, w, h)
       return
     }
+
     const img = new Image()
     img.onload = () => {
       contornoImg.current = img
-      const cv = contornoRef.current
-      const dpr = Math.max(1, window.devicePixelRatio || 1)
-      cv.width  = Math.floor(CANVAS_W * dpr)
-      cv.height = Math.floor(CANVAS_H * dpr)
+      const { w: cW, h: cH } = cvSize.current  // usa tamanho atual (pode ter mudado)
+      cv.width  = Math.floor(cW * dpr)
+      cv.height = Math.floor(cH * dpr)
       const ctx = cv.getContext('2d')
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      ctx.clearRect(0, 0, CANVAS_W, CANVAS_H)
-      ctx.drawImage(img, 0, 0, CANVAS_W, CANVAS_H)
+      // Desenha centralizado mantendo proporção do template (letterbox/pillarbox)
+      drawContornoFitted(ctx, img, cW, cH)
     }
     img.src = contornoSrc
   }, [contornoSrc])
 
-  // -- Conversão de coordenadas --------------------------------------
+  // -- Conversão de coordenadas (via getBoundingClientRect — correto mesmo com zoom) --
   const toCanvas = useCallback((clientX, clientY) => {
     const rect = pinturaRef.current.getBoundingClientRect()
-    const x = ((clientX - rect.left) / rect.width)  * CANVAS_W
-    const y = ((clientY - rect.top)  / rect.height) * CANVAS_H
+    const { w, h } = cvSize.current
+    const x = ((clientX - rect.left) / rect.width)  * w
+    const y = ((clientY - rect.top)  / rect.height) * h
     return { x, y }
   }, [])
 
-  // -- Desenho ---------------------------------------------------------
+  // -- Desenho -----------------------------------------------------------
   const aplicarModo = (ctx) => {
     ctx.globalCompositeOperation = ferramenta === 'borracha' ? 'destination-out' : 'source-over'
   }
@@ -167,12 +225,9 @@ const Canvas = forwardRef(function Canvas({
   const maskContorno = () => {
     const cv = contornoRef.current
     if (!cv || !contornoImg.current) return null
-    const ctx = cv.getContext('2d')
-    return ctx.getImageData(0, 0, cv.width, cv.height)
+    return cv.getContext('2d').getImageData(0, 0, cv.width, cv.height)
   }
 
-  // Dispara flood fill em (x,y) se o pixel alvo ainda não tem a cor atual.
-  // Também bloqueia se o ponto cai sobre o contorno (a máscara detecta isso).
   const baldeEm = (x, y) => {
     const ctx = pinturaCtx.current
     if (!ctx) return false
@@ -180,40 +235,29 @@ const Canvas = forwardRef(function Canvas({
     const px = Math.floor(x * dpr)
     const py = Math.floor(y * dpr)
     if (px < 0 || py < 0 || px >= ctx.canvas.width || py >= ctx.canvas.height) return false
-
-    // Checa contorno (barrier) — não dispara em cima dele
     const mask = maskContorno()
     if (mask) {
       const mi = (py * ctx.canvas.width + px) * 4 + 3
       if (mask.data[mi] > 128) return false
     }
-
-    // Checa se o pixel atual já está com a cor alvo (evita reprocessar)
     const cur  = ctx.getImageData(px, py, 1, 1).data
     const alvo = hexToRgba(cor)
-    const dr = cur[0] - alvo[0]
-    const dg = cur[1] - alvo[1]
-    const db = cur[2] - alvo[2]
-    const mesmoCor = (Math.abs(dr) + Math.abs(dg) + Math.abs(db) < 12) && cur[3] > 200
+    const mesmoCor =
+      Math.abs(cur[0]-alvo[0]) + Math.abs(cur[1]-alvo[1]) + Math.abs(cur[2]-alvo[2]) < 12
+      && cur[3] > 200
     if (mesmoCor) return false
-
     floodFill(ctx, px, py, cor, 30, mask)
     return true
   }
 
-  // -- Pointer events --------------------------------------------------
+  // -- Pointer events ----------------------------------------------------
   const onPointerDown = (e) => {
     const el = e.currentTarget
     el.setPointerCapture?.(e.pointerId)
-
-    // Rejeição de palma (apenas para toques muito largos — limiar relaxado)
     if (e.pointerType === 'touch' && (e.width > 40 || e.height > 40)) return
-
     draw.current.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
 
     if (draw.current.pointers.size >= 2) {
-      // Segundo dedo detectado: cancela qualquer pintura do primeiro toque.
-      // Restaura o snapshot para remover o ponto que eventualmente foi pintado.
       draw.current.desenhando = false
       if (pinturaSnapshot.current && pinturaCtx.current) {
         pinturaCtx.current.putImageData(pinturaSnapshot.current, 0, 0)
@@ -223,17 +267,15 @@ const Canvas = forwardRef(function Canvas({
       return
     }
 
-    // Primeiro toque: salva snapshot antes de pintar (para desfazer se vier pinça)
     if (e.pointerType === 'touch' && pinturaCtx.current) {
       const cv = pinturaRef.current
       pinturaSnapshot.current = pinturaCtx.current.getImageData(0, 0, cv.width, cv.height)
     }
 
-    // Toque único => desenho
     const p = toCanvas(e.clientX, e.clientY)
-    draw.current.ultimo = p
+    draw.current.ultimo   = p
     draw.current.controle = p
-    draw.current.moveu = false
+    draw.current.moveu    = false
     draw.current.tapStart = performance.now()
     draw.current.desenhando = true
     draw.current.tapPoint = p
@@ -241,8 +283,7 @@ const Canvas = forwardRef(function Canvas({
     if (ferramenta === 'balde') {
       if (baldeEm(p.x, p.y)) onAlterado?.()
     } else {
-      const ctx = pinturaCtx.current
-      desenharPonto(ctx, p.x, p.y, e.pressure || 0.5)
+      desenharPonto(pinturaCtx.current, p.x, p.y, e.pressure || 0.5)
       onAlterado?.()
     }
   }
@@ -257,15 +298,11 @@ const Canvas = forwardRef(function Canvas({
     }
 
     if (!draw.current.desenhando) return
-
     const p = toCanvas(e.clientX, e.clientY)
     const dx = p.x - draw.current.ultimo.x
     const dy = p.y - draw.current.ultimo.y
     if (Math.hypot(dx, dy) < 0.5) return
 
-    // Marca "moveu" apenas após deslocamento significativo a partir do
-    // ponto de toque inicial. Isso evita falsos arrastos por tremor em
-    // clique único — crítico para o balde.
     if (draw.current.tapPoint) {
       const ddx = p.x - draw.current.tapPoint.x
       const ddy = p.y - draw.current.tapPoint.y
@@ -273,7 +310,6 @@ const Canvas = forwardRef(function Canvas({
     }
 
     if (ferramenta === 'balde') {
-      // Arrasto contínuo: preenche cada região nova sob o ponteiro.
       if (baldeEm(p.x, p.y)) onAlterado?.()
       draw.current.ultimo = p
       return
@@ -284,34 +320,23 @@ const Canvas = forwardRef(function Canvas({
     const controle = draw.current.controle || anterior
     const meio = { x: (controle.x + p.x) / 2, y: (controle.y + p.y) / 2 }
     desenharLinha(ctx, anterior, controle, meio, e.pressure || 0.5)
-    draw.current.ultimo = meio
+    draw.current.ultimo   = meio
     draw.current.controle = p
     onAlterado?.()
   }
 
   const onPointerUp = (e) => {
     draw.current.pointers.delete(e.pointerId)
-
-    if (draw.current.pointers.size >= 1) {
-      zoom.onPointersChange(draw.current.pointers, 'up')
-    } else {
-      zoom.onPointersChange(draw.current.pointers, 'up')
-    }
-
+    zoom.onPointersChange(draw.current.pointers, 'up')
     if (!draw.current.desenhando) return
-
     draw.current.desenhando = false
-    draw.current.ultimo = null
-    draw.current.controle = null
-    draw.current.tapPoint = null
-    draw.current.moveu = false
-    // Pintura confirmada: descarta snapshot (não há mais o que desfazer)
+    draw.current.ultimo = draw.current.controle = draw.current.tapPoint = null
+    draw.current.moveu  = false
     pinturaSnapshot.current = null
   }
 
   const onPointerCancel = onPointerUp
 
-  // -- Container ref para zoom ----------------------------------------
   useEffect(() => { zoom.setContainer(containerRef.current) }, [zoom.setContainer])
 
   const transform = `translate(${zoom.tx}px, ${zoom.ty}px) scale(${zoom.scale})`
@@ -324,7 +349,8 @@ const Canvas = forwardRef(function Canvas({
     >
       <div
         className="relative overflow-hidden bg-white dark:bg-neutral-900
-                   md:shadow-soft md:rounded-2xl md:ring-1 md:ring-black/5 md:dark:ring-white/10"
+                   md:shadow-soft md:rounded-2xl
+                   md:ring-1 md:ring-black/5 md:dark:ring-white/10"
         style={{
           width:  displayW || '100%',
           height: displayH || '100%',
@@ -352,10 +378,12 @@ const Canvas = forwardRef(function Canvas({
       {zoom.scale > 1.001 && (
         <button
           onClick={zoom.reset}
-          className="absolute top-4 right-4 rounded-full bg-white/90 dark:bg-neutral-800/90 backdrop-blur px-3 py-2 shadow-soft ring-1 ring-black/5 dark:ring-white/10 flex items-center gap-2 text-sm font-semibold"
+          className="absolute top-3 right-3 rounded-full bg-white/90 dark:bg-neutral-800/90
+                     backdrop-blur px-3 py-1.5 shadow-soft ring-1 ring-black/5 dark:ring-white/10
+                     flex items-center gap-1.5 text-xs font-semibold"
           aria-label="Resetar zoom"
         >
-          <RotateCcw size={16} /> Resetar zoom
+          <RotateCcw size={14}/> Resetar zoom
         </button>
       )}
     </div>
