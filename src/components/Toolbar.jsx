@@ -1,4 +1,4 @@
-import { Brush, Eraser, PaintBucket, Palette, Save, Download, Trash2, Moon, Sun, Settings, Maximize2 } from 'lucide-react'
+import { Brush, Eraser, PaintBucket, Palette, Star, Download, Trash2, Moon, Sun, Settings } from 'lucide-react'
 
 const TAMANHOS = [
   { key: 'p', label: 'P', px: 6 },
@@ -15,8 +15,9 @@ export default function Toolbar({
   onLimpar,
   dark, onToggleTema,
   onAbrirAdmin,
-  onImersivo
+  corPerfil
 }) {
+  const accent = corPerfil || '#5d6bf0'
   return (
     <div className="w-full">
       <div className="bg-white/90 dark:bg-neutral-900/90 backdrop-blur border-t border-neutral-200 dark:border-neutral-800 md:border-t-0 md:border-l md:rounded-2xl md:shadow-soft md:ring-1 md:ring-black/5 md:dark:ring-white/10 px-3 py-3 md:px-4 md:py-4">
@@ -24,9 +25,9 @@ export default function Toolbar({
 
           {/* Ferramentas */}
           <div className="flex md:flex-col gap-2">
-            <FerramentaBtn ativa={ferramenta==='pincel'}   onClick={() => setFerramenta('pincel')}   icon={<Brush size={22}/>}       label="Pincel"/>
-            <FerramentaBtn ativa={ferramenta==='balde'}    onClick={() => setFerramenta('balde')}    icon={<PaintBucket size={22}/>} label="Balde"/>
-            <FerramentaBtn ativa={ferramenta==='borracha'} onClick={() => setFerramenta('borracha')} icon={<Eraser size={22}/>}      label="Borracha"/>
+            <FerramentaBtn cor={accent} ativa={ferramenta==='pincel'}   onClick={() => setFerramenta('pincel')}   icon={<Brush size={22}/>}       label="Pincel"/>
+            <FerramentaBtn cor={accent} ativa={ferramenta==='balde'}    onClick={() => setFerramenta('balde')}    icon={<PaintBucket size={22}/>} label="Balde"/>
+            <FerramentaBtn cor={accent} ativa={ferramenta==='borracha'} onClick={() => setFerramenta('borracha')} icon={<Eraser size={22}/>}      label="Borracha"/>
           </div>
 
           {/* Tamanhos */}
@@ -38,9 +39,10 @@ export default function Toolbar({
                 className={[
                   'w-11 h-11 rounded-xl flex items-center justify-center transition',
                   tamanho===t.px
-                    ? 'bg-brand-500 text-white shadow-soft'
+                    ? 'text-white shadow-soft'
                     : 'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700'
                 ].join(' ')}
+                style={tamanho===t.px ? { background: accent } : undefined}
                 aria-label={`Tamanho ${t.label}`}
               >
                 <span className="rounded-full bg-current block"
@@ -63,10 +65,17 @@ export default function Toolbar({
 
           {/* Ações */}
           <div className="flex md:flex-col gap-2 ml-auto md:ml-0">
-            <AcaoBtn onClick={onSalvar} disabled={!podeSalvar || salvando} icon={<Save size={20}/>}  label={salvando ? 'Salvando...' : 'Salvar'} primary />
+            <AcaoBtn
+              onClick={onSalvar}
+              disabled={!podeSalvar || salvando}
+              icon={<Star size={22} fill="#FACC15" stroke="#CA8A04" strokeWidth={1.5}/>}
+              label={salvando ? 'Salvando...' : 'Salvar'}
+              labelSmall
+              primary
+              cor={accent}
+            />
             <AcaoBtn onClick={onExportar} icon={<Download size={20}/>} label="Baixar"/>
             <AcaoBtn onClick={onLimpar}   icon={<Trash2 size={20}/>}   label="Limpar"/>
-            <AcaoBtn onClick={onImersivo} icon={<Maximize2 size={18}/>} label="Tela cheia"/>
             <AcaoBtn onClick={onToggleTema} icon={dark ? <Sun size={20}/> : <Moon size={20}/>} label={dark ? 'Claro' : 'Escuro'}/>
             <AcaoBtn onClick={onAbrirAdmin} icon={<Settings size={18}/>} label=""/>
           </div>
@@ -76,33 +85,36 @@ export default function Toolbar({
   )
 }
 
-function FerramentaBtn({ ativa, onClick, icon, label }) {
+function FerramentaBtn({ ativa, onClick, icon, label, cor }) {
   return (
     <button
       onClick={onClick}
       className={[
         'w-11 h-11 md:w-12 md:h-12 rounded-xl flex items-center justify-center transition',
         ativa
-          ? 'bg-brand-500 text-white shadow-soft'
+          ? 'text-white shadow-soft'
           : 'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700'
       ].join(' ')}
+      style={ativa ? { background: cor } : undefined}
       aria-label={label}
       title={label}
     >{icon}</button>
   )
 }
 
-function AcaoBtn({ onClick, disabled, icon, label, primary }) {
+function AcaoBtn({ onClick, disabled, icon, label, primary, labelSmall, cor }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       className={[
-        'h-11 md:h-10 px-3 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold transition',
+        'h-11 md:h-10 px-3 rounded-xl flex items-center justify-center gap-2 font-semibold transition',
+        labelSmall ? 'text-xs' : 'text-sm',
         primary
-          ? 'bg-brand-500 text-white hover:bg-brand-600 disabled:bg-neutral-300 dark:disabled:bg-neutral-700 disabled:text-neutral-500'
+          ? 'text-white hover:brightness-110 disabled:!bg-neutral-300 dark:disabled:!bg-neutral-700 disabled:text-neutral-500'
           : 'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 disabled:opacity-50'
       ].join(' ')}
+      style={primary && !disabled ? { background: cor || '#5d6bf0' } : undefined}
       title={label}
     >
       {icon}

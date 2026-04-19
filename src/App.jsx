@@ -15,7 +15,7 @@ import {
 // listarPerfis usado dentro de recarregarTpls para ler builtins_ocultos atualizado
 import { processarContorno, comporObra, canvasParaBlob } from './lib/imageProcessing.js'
 import { BUILTIN_TEMPLATES } from './lib/builtinTemplates.js'
-import { PanelTopOpen } from 'lucide-react'
+import { Expand, Shrink } from 'lucide-react'
 
 const DARK_KEY = 'kp_dark'
 const BOAS_KEY = 'kp_boas_vindas_sessao'
@@ -250,7 +250,7 @@ export default function App() {
             )}
 
             <div className="flex-1 min-w-0">
-              <TemplateSelector templates={templates} ativo={templateId} onEscolher={trocarTemplate}/>
+              <TemplateSelector templates={templates} ativo={templateId} onEscolher={trocarTemplate} corPerfil={perfilAtivo?.cor}/>
             </div>
           </div>
         </header>
@@ -266,16 +266,6 @@ export default function App() {
             contornoSrc={contornoSrc}
             onAlterado={onAlterado}
           />
-          {imersivo && (
-            <button
-              onClick={() => setImersivo(false)}
-              className="fixed top-3 right-3 z-40 w-11 h-11 rounded-full bg-white/90 dark:bg-neutral-900/90 shadow-soft ring-1 ring-black/10 dark:ring-white/15 flex items-center justify-center backdrop-blur"
-              title="Mostrar HUD"
-              aria-label="Mostrar HUD"
-            >
-              <PanelTopOpen size={20}/>
-            </button>
-          )}
         </main>
       </div>
 
@@ -290,10 +280,21 @@ export default function App() {
           onLimpar={onLimpar}
           dark={dark} onToggleTema={() => setDark(d => !d)}
           onAbrirAdmin={() => setAdminAberto(true)}
-          onImersivo={() => setImersivo(true)}
+          corPerfil={perfilAtivo?.cor}
         />
       </aside>
       )}
+
+      {/* Botão flutuante de tela cheia — sempre visível */}
+      <button
+        onClick={() => setImersivo(v => !v)}
+        className="fixed bottom-4 right-4 z-40 w-14 h-14 rounded-full text-white shadow-xl ring-2 ring-white/40 dark:ring-black/30 flex items-center justify-center hover:scale-110 active:scale-95 transition"
+        style={{ background: perfilAtivo?.cor || '#5d6bf0' }}
+        title={imersivo ? 'Sair da tela cheia' : 'Tela cheia'}
+        aria-label={imersivo ? 'Sair da tela cheia' : 'Tela cheia'}
+      >
+        {imersivo ? <Shrink size={26}/> : <Expand size={26}/>}
+      </button>
 
       {paletaAberta && <ColorPicker cor={cor} setCor={setCor} onFechar={() => setPaletaAberta(false)}/>}
 
