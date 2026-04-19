@@ -5,68 +5,117 @@ import ColorPicker from './components/ColorPicker.jsx'
 import TemplateSelector from './components/TemplateSelector.jsx'
 import AdminPanel from './components/AdminPanel.jsx'
 import WelcomeScreen from './components/WelcomeScreen.jsx'
-import { hasSupabase, listarTemplates, salvarObra, getSessaoId } from './lib/supabase.js'
+import Login from './components/Login.jsx'
+import ProfilePicker from './components/ProfilePicker.jsx'
+import {
+  hasSupabase, listarTemplates, salvarObra,
+  getUser, onAuthChange,
+  listarPerfis, getPerfilAtivoId, setPerfilAtivoId
+} from './lib/supabase.js'
 import { processarContorno, comporObra, canvasParaBlob } from './lib/imageProcessing.js'
 import { BUILTIN_TEMPLATES } from './lib/builtinTemplates.js'
 
-const DARK_KEY  = 'kp_dark'
-const BOAS_KEY  = 'kp_boas_vindas_sessao'
+const DARK_KEY = 'kp_dark'
+const BOAS_KEY = 'kp_boas_vindas_sessao'
 
 export default function App() {
-  // Tema
+  // ---------- Tema ----------
   const [dark, setDark] = useState(() => localStorage.getItem(DARK_KEY) === '1')
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
     localStorage.setItem(DARK_KEY, dark ? '1' : '0')
   }, [dark])
-
   const corFundo = dark ? '#0a0a0a' : '#ffffff'
 
-  // Boas-vindas — a flag fica em sessionStorage pra aparecer a cada nova
-  // sessão (nova aba/relaunch do PWA), garantindo o passo pelo botão que
-  // aciona o fullscreen no celular.
+  // ---------- Boas-vindas por sessão (fullscreen) ----------
   const [bemVindo, setBemVindo] = useState(() => !sessionStorage.getItem(BOAS_KEY))
   const entrar = () => { sessionStorage.setItem(BOAS_KEY, '1'); setBemVindo(false) }
 
-  // Ferramentas
+  // ---------- Auth ----------
+  const [authCarregando, setAuthCarregando] = useState(true)
+  const [user, setUser] = useState(null)
+  useEffect(() => {
+    let vivo = true
+    ;(async () => {
+      const u = await getUser()
+      if (vivo) { setUser(u); setAuthCarregando(false) }
+    })()
+    const off = onAuthChange((u) => { setUser(u) })
+    return () => { vivo = false; off() }
+  }, [])
+
+  // ---------- Perfil ativo (por dispositivo, localStorage) ----------
+  const [perfilAtivo, setPerfilAtivoState] = useState(null)
+  const [perfilCarregando, setPerfilCarregando] = useState(false)
+
+  const setPerfilAtivo = useCallback((p) => {
+    setPerfilAtivoState(p)
+    setPerfilAtivoId(p?.id ?? null)
+  }, [])
+
+  // Quando muda de usuário, tenta resolver o perfil ativo desse device
+  useEffect(() => {
+    if (!user) { setPerfilAtivoState(null); return }
+    let vivo = true
+    ;(async () => {
+      setPerfilCarregando(true)
+      const id = getPerfilAtivoId()
+      try {
+        const perfis = await listarPerfis()
+        const escolhido = perfis.find(p => p.id === id) || null
+        if (vivo) setPerfilAtivoState(escolhido)
+      } catch (e) { console.error(e) }
+      if (vivo) setPerfilCarregando(false)
+    })()
+    return () => { vivo = false }
+  }, [user?.id])
+
+  // ---------- Ferramentas ----------
   const [ferramenta, setFerramenta] = useState('pincel')
   const [tamanho, setTamanho]       = useState(18)
   const [cor, setCor]               = useState('#EF4444')
   const [paletaAberta, setPaletaAberta] = useState(false)
   const [adminAberto, setAdminAberto]   = useState(false)
 
-  // Templates
-  const [templates, setTemplates] = useState([])
+  // ---------- Templates ----------
+  const [templates, setTemplates] = useState(BUILTIN_TEMPLATES)
   const [templateId, setTemplateId] = useState('blank')
   const [contornoSrc, setContornoSrc] = useState(null)
 
-  // Salvamento
+  // ---------- Salvamento ----------
   const [alterado, setAlterado] = useState(false)
   const [salvando, setSalvando] = useState(false)
 
-  // Guarda pintura por template (em memória)
-  const cacheRef = useRef({}) // { [tplId]: dataURL }
-
-  // Canvas ref
+  // Guarda pintura por template (memória local da sessão)
+  const cacheRef = useRef({})
   const canvasRef = useRef(null)
 
-  // Carrega templates visíveis
+  // Carrega templates do perfil ativo
   const recarregarTpls = useCallback(async () => {
-    if (!hasSupabase) {
+    if (!hasSupabase || !perfilAtivo) {
       setTemplates(BUILTIN_TEMPLATES)
       return
     }
     try {
-      const ts = (await listarTemplates()).filter(t => t.visivel)
+      const ts = (await listarTemplates(perfilAtivo.id)).filter(t => t.visivel)
       setTemplates([...BUILTIN_TEMPLATES, ...ts])
     } catch (e) {
       console.error(e)
       setTemplates(BUILTIN_TEMPLATES)
     }
-  }, [])
+  }, [perfilAtivo?.id])
   useEffect(() => { recarregarTpls() }, [recarregarTpls])
 
-  // Processa contorno quando template ou tema mudam
+  // Ao trocar de perfil: limpa canvas e cache, volta pra tela em branco
+  useEffect(() => {
+    cacheRef.current = {}
+    setTemplateId('blank')
+    setContornoSrc(null)
+    setAlterado(false)
+    setTimeout(() => canvasRef.current?.limpar?.(), 10)
+  }, [perfilAtivo?.id])
+
+  // Processa contorno (template + tema)
   useEffect(() => {
     let ativo = true
     ;(async () => {
@@ -84,30 +133,24 @@ export default function App() {
     return () => { ativo = false }
   }, [templateId, templates, dark])
 
-  // Troca de template: salva/restaura pintura em memória
   const trocarTemplate = async (novoId) => {
     if (novoId === templateId) return
-    // salva atual
     const dataAtual = canvasRef.current?.getPinturaDataUrl?.()
     if (dataAtual) cacheRef.current[templateId] = dataAtual
 
     setTemplateId(novoId)
 
-    // restaura novo (após o próximo paint)
     setTimeout(async () => {
       const data = cacheRef.current[novoId]
-      if (data) {
-        await canvasRef.current?.setPinturaDataUrl?.(data)
-      } else {
-        canvasRef.current?.limpar?.()
-      }
+      if (data) await canvasRef.current?.setPinturaDataUrl?.(data)
+      else canvasRef.current?.limpar?.()
       setAlterado(false)
     }, 30)
   }
 
-  // Salvar
   const onSalvar = async () => {
     if (!hasSupabase) { alert('Configure o Supabase para salvar.'); return }
+    if (!perfilAtivo) { alert('Selecione um perfil antes de salvar.'); return }
     if (!canvasRef.current) return
     setSalvando(true)
     try {
@@ -121,10 +164,9 @@ export default function App() {
       const tpl = templates.find(t => t.id === templateId)
       await salvarObra({
         blob,
-        sessaoId: getSessaoId(),
+        perfilId: perfilAtivo.id,
         templateId,
-        templateUrl: tpl?.url ?? null,
-        contornoDataUrl: null
+        templateUrl: tpl?.url ?? null
       })
       setAlterado(false)
     } catch (e) {
@@ -134,7 +176,6 @@ export default function App() {
     setSalvando(false)
   }
 
-  // Exportar JPEG 90%
   const onExportar = async () => {
     if (!canvasRef.current) return
     const { pintura, contorno } = canvasRef.current.exportar()
@@ -159,30 +200,47 @@ export default function App() {
     setAlterado(false)
   }
 
-  const onAlterado = useCallback(() => {
-    if (!alterado) setAlterado(true)
-  }, [alterado])
+  const onAlterado = useCallback(() => { if (!alterado) setAlterado(true) }, [alterado])
 
+  // ---------- Render: fluxos bloqueantes ----------
   if (bemVindo) return <WelcomeScreen onEntrar={entrar}/>
+
+  if (hasSupabase) {
+    if (authCarregando) return <TelaEspera mensagem="Carregando..."/>
+    if (!user)        return <Login/>
+    if (perfilCarregando) return <TelaEspera mensagem="Carregando perfil..."/>
+    if (!perfilAtivo) return <ProfilePicker onEscolher={setPerfilAtivo}/>
+  }
 
   return (
     <div className="min-h-screen h-screen flex flex-col md:flex-row">
-      {/* Área principal */}
       <div className="flex-1 flex flex-col min-h-0">
-        {/* Header com templates */}
         <header className="shrink-0 border-b border-neutral-200 dark:border-neutral-800 bg-white/70 dark:bg-neutral-900/70 backdrop-blur">
           <div className="flex items-center gap-2 px-3 py-1">
             <div className="hidden md:flex items-center gap-2 px-2 py-1">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-400 to-pink-400 flex items-center justify-center text-white font-extrabold">P</div>
               <span className="font-extrabold tracking-tight">Pintar</span>
             </div>
+
+            {perfilAtivo && (
+              <button
+                onClick={() => setAdminAberto(true)}
+                className="shrink-0 flex items-center gap-2 px-2 py-1 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition"
+                title="Abrir configurações (protegido por senha)"
+              >
+                <div className="w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs" style={{ background: perfilAtivo.cor }}>
+                  {perfilAtivo.nome.charAt(0).toUpperCase()}
+                </div>
+                <span className="font-semibold text-sm hidden sm:inline">{perfilAtivo.nome}</span>
+              </button>
+            )}
+
             <div className="flex-1 min-w-0">
               <TemplateSelector templates={templates} ativo={templateId} onEscolher={trocarTemplate}/>
             </div>
           </div>
         </header>
 
-        {/* Canvas */}
         <main className="flex-1 min-h-0 p-2 md:p-4">
           <Canvas
             ref={canvasRef}
@@ -196,13 +254,12 @@ export default function App() {
         </main>
       </div>
 
-      {/* Toolbar (direita no desktop / baixo no mobile) */}
       <aside className="shrink-0 md:w-[84px] md:p-3 md:pl-0">
         <Toolbar
           ferramenta={ferramenta} setFerramenta={setFerramenta}
           tamanho={tamanho} setTamanho={setTamanho}
           cor={cor} onAbrirPaleta={() => setPaletaAberta(true)}
-          onSalvar={onSalvar} salvando={salvando} podeSalvar={alterado && hasSupabase}
+          onSalvar={onSalvar} salvando={salvando} podeSalvar={alterado && hasSupabase && !!perfilAtivo}
           onExportar={onExportar}
           onLimpar={onLimpar}
           dark={dark} onToggleTema={() => setDark(d => !d)}
@@ -217,8 +274,19 @@ export default function App() {
         onFechar={() => setAdminAberto(false)}
         dark={dark}
         onToggleTema={() => setDark(d => !d)}
+        perfilAtivo={perfilAtivo}
+        setPerfilAtivo={setPerfilAtivo}
+        userEmail={user?.email}
         onTemplatesChange={recarregarTpls}
       />
+    </div>
+  )
+}
+
+function TelaEspera({ mensagem }) {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-gradient-to-br from-brand-100 via-white to-pink-100 dark:from-neutral-900 dark:via-neutral-950 dark:to-neutral-900">
+      <p className="text-neutral-500 font-semibold">{mensagem}</p>
     </div>
   )
 }
