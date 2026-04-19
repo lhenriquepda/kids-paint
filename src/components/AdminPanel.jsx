@@ -4,8 +4,10 @@ import {
   listarProjetos, excluirProjeto,
   listarTemplates, uploadTemplate, setTemplateVisivel, excluirTemplate,
   listarPerfis, criarPerfil, atualizarPerfil, excluirPerfil,
-  verificarSenha, signOut, hasSupabase
+  verificarSenha, signOut, hasSupabase,
+  setBuiltinVisivel
 } from '../lib/supabase.js'
+import { BUILTIN_TEMPLATES } from '../lib/builtinTemplates.js'
 
 const CORES_PERFIL = ['#5d6bf0', '#ef4444', '#f97316', '#eab308', '#16a34a', '#06b6d4', '#db2777', '#7c3aed']
 
@@ -275,12 +277,26 @@ function Conta() {
 function Templates({ perfilAtivo, onTemplatesChange }) {
   const [lista, setLista] = useState([])
   const [carregando, setCarregando] = useState(false)
+  const [ocultos, setOcultos] = useState(() => perfilAtivo?.builtins_ocultos || [])
 
   const recarregar = async () => {
     if (!hasSupabase || !perfilAtivo) return
     try { setLista(await listarTemplates(perfilAtivo.id)) } catch (e) { console.error(e) }
   }
-  useEffect(() => { recarregar() }, [perfilAtivo?.id])
+  useEffect(() => {
+    recarregar()
+    setOcultos(perfilAtivo?.builtins_ocultos || [])
+  }, [perfilAtivo?.id])
+
+  const alternarBuiltin = async (tplId, visivel) => {
+    try {
+      const novo = await setBuiltinVisivel(perfilAtivo.id, tplId, visivel)
+      setOcultos(novo)
+      // Atualiza a referência local do perfil pra refletir em outras telas
+      if (perfilAtivo) perfilAtivo.builtins_ocultos = novo
+      onTemplatesChange?.()
+    } catch (err) { alert('Erro: ' + err.message) }
+  }
 
   if (!perfilAtivo) return <p className="text-neutral-500">Ative um perfil para gerenciar templates.</p>
 
@@ -323,23 +339,69 @@ function Templates({ perfilAtivo, onTemplatesChange }) {
         </label>
       </div>
 
+      {/* Embutidos */}
+      <h4 className="text-xs uppercase tracking-wider font-bold text-neutral-500 mb-2">Embutidos</h4>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+        {BUILTIN_TEMPLATES.map(t => {
+          const visivel = !ocultos.includes(t.id)
+          return (
+            <div key={t.id} className={[
+              'rounded-2xl ring-1 overflow-hidden bg-white dark:bg-neutral-800 transition',
+              visivel ? 'ring-black/5 dark:ring-white/10' : 'ring-black/5 dark:ring-white/10 opacity-50'
+            ].join(' ')}>
+              <div className="aspect-square bg-neutral-50 dark:bg-neutral-900 flex items-center justify-center">
+                <img src={t.url} alt={t.nome} className="w-full h-full object-contain"/>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2">
+                <span className="text-sm font-semibold truncate flex-1 mr-2">{t.nome}</span>
+                <button
+                  onClick={() => alternarBuiltin(t.id, !visivel)}
+                  className={[
+                    'px-3 py-1 rounded-lg text-xs font-bold transition',
+                    visivel
+                      ? 'bg-neutral-100 dark:bg-neutral-700 hover:bg-neutral-200 dark:hover:bg-neutral-600'
+                      : 'bg-brand-500 hover:bg-brand-600 text-white'
+                  ].join(' ')}
+                  title={visivel ? 'Desativar' : 'Ativar'}
+                >
+                  {visivel ? 'Desativar' : 'Ativar'}
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Uploads */}
+      <h4 className="text-xs uppercase tracking-wider font-bold text-neutral-500 mb-2">Seus uploads</h4>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {lista.map(t => (
-          <div key={t.id} className="rounded-2xl ring-1 ring-black/5 dark:ring-white/10 overflow-hidden bg-white dark:bg-neutral-800">
+          <div key={t.id} className={[
+            'rounded-2xl ring-1 ring-black/5 dark:ring-white/10 overflow-hidden bg-white dark:bg-neutral-800 transition',
+            t.visivel ? '' : 'opacity-50'
+          ].join(' ')}>
             <div className="aspect-square bg-neutral-50 dark:bg-neutral-900 flex items-center justify-center">
               <img src={t.url} alt={t.nome} className="w-full h-full object-contain"/>
             </div>
-            <div className="flex items-center justify-between px-3 py-2">
-              <span className="text-sm font-semibold truncate flex-1 mr-2">{t.nome}</span>
-              <button onClick={() => alternar(t)} className="w-8 h-8 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-700 flex items-center justify-center" title={t.visivel ? 'Ocultar' : 'Mostrar'}>
-                {t.visivel ? <Eye size={16}/> : <EyeOff size={16} className="text-neutral-400"/>}
+            <div className="flex items-center justify-between px-3 py-2 gap-1">
+              <span className="text-sm font-semibold truncate flex-1 mr-1">{t.nome}</span>
+              <button
+                onClick={() => alternar(t)}
+                className={[
+                  'px-3 py-1 rounded-lg text-xs font-bold transition',
+                  t.visivel
+                    ? 'bg-neutral-100 dark:bg-neutral-700 hover:bg-neutral-200 dark:hover:bg-neutral-600'
+                    : 'bg-brand-500 hover:bg-brand-600 text-white'
+                ].join(' ')}
+              >
+                {t.visivel ? 'Desativar' : 'Ativar'}
               </button>
               <button onClick={() => excluir(t)} className="w-8 h-8 rounded-full hover:bg-red-50 dark:hover:bg-red-900/30 text-red-500 flex items-center justify-center" title="Excluir"><Trash2 size={14}/></button>
             </div>
           </div>
         ))}
       </div>
-      {lista.length === 0 && <p className="text-neutral-500 text-sm mt-6">Nenhum template enviado neste perfil ainda.</p>}
+      {lista.length === 0 && <p className="text-neutral-500 text-sm mt-3">Nenhum template enviado neste perfil ainda.</p>}
     </div>
   )
 }

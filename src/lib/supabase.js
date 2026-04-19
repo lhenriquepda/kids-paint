@@ -87,6 +87,21 @@ export async function atualizarPerfil(id, campos) {
   const { error } = await supabase.from('perfis').update(campos).eq('id', id)
   if (error) throw error
 }
+
+// Alterna a visibilidade de um template embutido em um perfil.
+// Retorna o novo array builtins_ocultos.
+export async function setBuiltinVisivel(perfilId, builtinId, visivel) {
+  if (!supabase) return []
+  const { data: atual, error: e1 } = await supabase
+    .from('perfis').select('builtins_ocultos').eq('id', perfilId).single()
+  if (e1) throw e1
+  const atuais = Array.isArray(atual?.builtins_ocultos) ? atual.builtins_ocultos : []
+  const sem = atuais.filter(x => x !== builtinId)
+  const novo = visivel ? sem : [...sem, builtinId]
+  const { error } = await supabase.from('perfis').update({ builtins_ocultos: novo }).eq('id', perfilId)
+  if (error) throw error
+  return novo
+}
 export async function excluirPerfil(id) {
   if (!supabase) return
   const { error } = await supabase.from('perfis').delete().eq('id', id)

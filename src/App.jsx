@@ -12,6 +12,7 @@ import {
   getUser, onAuthChange,
   listarPerfis, getPerfilAtivoId, setPerfilAtivoId
 } from './lib/supabase.js'
+// listarPerfis usado dentro de recarregarTpls para ler builtins_ocultos atualizado
 import { processarContorno, comporObra, canvasParaBlob } from './lib/imageProcessing.js'
 import { BUILTIN_TEMPLATES } from './lib/builtinTemplates.js'
 
@@ -90,18 +91,28 @@ export default function App() {
   const cacheRef = useRef({})
   const canvasRef = useRef(null)
 
-  // Carrega templates do perfil ativo
+  // Carrega templates do perfil ativo. Embutidos são filtrados pelos
+  // ocultos que o perfil escolheu no Admin.
   const recarregarTpls = useCallback(async () => {
     if (!hasSupabase || !perfilAtivo) {
       setTemplates(BUILTIN_TEMPLATES)
       return
     }
+    // Re-lê o perfil para obter builtins_ocultos atualizado
+    let ocultos = perfilAtivo.builtins_ocultos || []
+    try {
+      const perfis = await listarPerfis()
+      const atualizado = perfis.find(p => p.id === perfilAtivo.id)
+      if (atualizado?.builtins_ocultos) ocultos = atualizado.builtins_ocultos
+    } catch (e) { /* mantém o que temos */ }
+
+    const embutidosVisiveis = BUILTIN_TEMPLATES.filter(t => !ocultos.includes(t.id))
     try {
       const ts = (await listarTemplates(perfilAtivo.id)).filter(t => t.visivel)
-      setTemplates([...BUILTIN_TEMPLATES, ...ts])
+      setTemplates([...embutidosVisiveis, ...ts])
     } catch (e) {
       console.error(e)
-      setTemplates(BUILTIN_TEMPLATES)
+      setTemplates(embutidosVisiveis)
     }
   }, [perfilAtivo?.id])
   useEffect(() => { recarregarTpls() }, [recarregarTpls])
