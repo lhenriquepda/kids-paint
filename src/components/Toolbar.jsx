@@ -1,4 +1,4 @@
-import { Brush, Eraser, PaintBucket, Palette, Save, Download, Trash2, Moon, Sun, Settings } from 'lucide-react'
+import { Brush, Eraser, PaintBucket, Palette, Save, Download, Trash2, Moon, Sun, Settings, Maximize2 } from 'lucide-react'
 
 const TAMANHOS = [
   { key: 'p', label: 'P', px: 6 },
@@ -14,7 +14,8 @@ export default function Toolbar({
   onExportar,
   onLimpar,
   dark, onToggleTema,
-  onAbrirAdmin
+  onAbrirAdmin,
+  onImersivo
 }) {
   return (
     <div className="w-full">
@@ -65,6 +66,7 @@ export default function Toolbar({
             <AcaoBtn onClick={onSalvar} disabled={!podeSalvar || salvando} icon={<Save size={20}/>}  label={salvando ? 'Salvando...' : 'Salvar'} primary />
             <AcaoBtn onClick={onExportar} icon={<Download size={20}/>} label="Baixar"/>
             <AcaoBtn onClick={onLimpar}   icon={<Trash2 size={20}/>}   label="Limpar"/>
+            <AcaoBtn onClick={onImersivo} icon={<Maximize2 size={18}/>} label="Tela cheia"/>
             <AcaoBtn onClick={onToggleTema} icon={dark ? <Sun size={20}/> : <Moon size={20}/>} label={dark ? 'Claro' : 'Escuro'}/>
             <AcaoBtn onClick={onAbrirAdmin} icon={<Settings size={18}/>} label=""/>
           </div>

@@ -15,6 +15,7 @@ import {
 // listarPerfis usado dentro de recarregarTpls para ler builtins_ocultos atualizado
 import { processarContorno, comporObra, canvasParaBlob } from './lib/imageProcessing.js'
 import { BUILTIN_TEMPLATES } from './lib/builtinTemplates.js'
+import { PanelTopOpen } from 'lucide-react'
 
 const DARK_KEY = 'kp_dark'
 const BOAS_KEY = 'kp_boas_vindas_sessao'
@@ -77,6 +78,7 @@ export default function App() {
   const [cor, setCor]               = useState('#EF4444')
   const [paletaAberta, setPaletaAberta] = useState(false)
   const [adminAberto, setAdminAberto]   = useState(false)
+  const [imersivo, setImersivo]         = useState(false)
 
   // ---------- Templates ----------
   const [templates, setTemplates] = useState(BUILTIN_TEMPLATES)
@@ -226,6 +228,7 @@ export default function App() {
   return (
     <div className="min-h-screen h-screen flex flex-col md:flex-row">
       <div className="flex-1 flex flex-col min-h-0">
+        {!imersivo && (
         <header className="shrink-0 border-b border-neutral-200 dark:border-neutral-800 bg-white/70 dark:bg-neutral-900/70 backdrop-blur">
           <div className="flex items-center gap-2 px-3 py-1">
             <div className="hidden md:flex items-center gap-2 px-2 py-1">
@@ -251,8 +254,9 @@ export default function App() {
             </div>
           </div>
         </header>
+        )}
 
-        <main className="flex-1 min-h-0 p-2 md:p-4">
+        <main className="flex-1 min-h-0 p-2 md:p-4 relative">
           <Canvas
             ref={canvasRef}
             ferramenta={ferramenta}
@@ -262,9 +266,20 @@ export default function App() {
             contornoSrc={contornoSrc}
             onAlterado={onAlterado}
           />
+          {imersivo && (
+            <button
+              onClick={() => setImersivo(false)}
+              className="fixed top-3 right-3 z-40 w-11 h-11 rounded-full bg-white/90 dark:bg-neutral-900/90 shadow-soft ring-1 ring-black/10 dark:ring-white/15 flex items-center justify-center backdrop-blur"
+              title="Mostrar HUD"
+              aria-label="Mostrar HUD"
+            >
+              <PanelTopOpen size={20}/>
+            </button>
+          )}
         </main>
       </div>
 
+      {!imersivo && (
       <aside className="shrink-0 md:w-[84px] md:p-3 md:pl-0">
         <Toolbar
           ferramenta={ferramenta} setFerramenta={setFerramenta}
@@ -275,8 +290,10 @@ export default function App() {
           onLimpar={onLimpar}
           dark={dark} onToggleTema={() => setDark(d => !d)}
           onAbrirAdmin={() => setAdminAberto(true)}
+          onImersivo={() => setImersivo(true)}
         />
       </aside>
+      )}
 
       {paletaAberta && <ColorPicker cor={cor} setCor={setCor} onFechar={() => setPaletaAberta(false)}/>}
 
